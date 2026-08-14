@@ -4,6 +4,10 @@
 
 **让 DeepSeek Harness 连接微信、拥有个性壁纸，也能读懂图片。**
 
+<img src="docs/assets/readme-hero.jpg" alt="DSH Plugins 4U：微信消息桥接、桌面壁纸与图片识别" width="100%">
+
+<sub>微信消息桥接 · 桌面壁纸 · 图片理解</sub>
+
 一个面向 macOS 的 DSH 扩展集合。三个功能独立封装、按需安装，DSH 升级后也可以一键重新应用。
 
 [![macOS](https://img.shields.io/badge/platform-macOS-111827?style=flat-square&logo=apple&logoColor=white)](#运行要求)
@@ -194,6 +198,8 @@ dsh-plugins-vision
 ```text
 DSH_plugins_4U/
 ├── install.sh                  # 统一安装入口
+├── docs/
+│   └── assets/                 # README 视觉素材
 └── packages/
     ├── wechat/
     │   ├── install.mjs         # 部署桥接服务并应用首页补丁
