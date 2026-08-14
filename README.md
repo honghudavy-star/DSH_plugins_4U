@@ -11,16 +11,16 @@ DSH（DeepSeek Harness）自建功能的**源仓库 + 一键安装**。解决 DS
 | # | 功能 | 包名 | 一句话说明 | 状态 |
 |---|------|------|-----------|------|
 | 1 | 🟢 微信 | `@dsh-plugins/wechat` | 手机微信 ⇄ 电脑 DSH 互相聊天（自动回复、图片文件、断线自动补发）+ 首页绿色微信快捷入口 | ✅ 已可用 |
-| 2 | 🖼️ 更换背景壁纸 | `@dsh-plugins/wallpaper` | 一键更换 DSH 界面背景壁纸 | ⏳ 规划中 |
-| 3 | 👁️ 识图 | `@dsh-plugins/vision` | 让 DSH 看懂图片（截图/粘贴图 → 自动识别描述） | ⏳ 规划中 |
+| 2 | 🖼️ 更换背景壁纸 | `@dsh-plugins/wallpaper` | 一键给 DSH 换壁纸：内置 4 张预设/自选图片，可调透明度、一键关闭，即时生效 | ✅ 已可用 |
+| 3 | 👁️ 识图 | `@dsh-plugins/vision` | 让 DSH 看懂图片：GUI 粘贴/拖拽图片 → 自动识别、描述、OCR | ✅ 已可用 |
 
 ## 一键安装
 
 ```bash
 git clone https://github.com/honghudavy-star/DSH_plugins_4U.git
 cd DSH_plugins_4U
-./install.sh            # 装全部已发布的功能包
-./install.sh wechat     # 或只装某一个
+./install.sh                 # 装全部功能
+./install.sh wechat          # 或只装某一个（wechat / wallpaper / vision）
 ```
 
 安装原理：`install.sh` 把每个包 `npm pack` 成 tarball 再全局安装——**安装时自动执行
@@ -32,7 +32,9 @@ cd DSH_plugins_4U
 安装后可手动重跑部署（幂等）：
 
 ```bash
-npx dsh-plugins-wechat        # 重新部署微信功能（聊天服务 + 首页入口）
+npx dsh-plugins-wechat        # 重新部署微信（聊天服务 + 首页入口）
+npx dsh-plugins-wallpaper     # 重应用当前壁纸（set/list/off 见包内 README）
+npx dsh-plugins-vision        # 重新部署识图（补丁 + 配置）
 ```
 
 ## 目录结构
@@ -40,14 +42,19 @@ npx dsh-plugins-wechat        # 重新部署微信功能（聊天服务 + 首页
 ```
 DSH_plugins_4U/
 ├── install.sh                  # 一键安装（默认全部，可指定包名）
-├── packages/
-│   └── wechat/                 # @dsh-plugins/wechat —— 微信功能
-│       ├── install.mjs         #   部署脚本（幂等）
-│       ├── src/                #   聊天服务源码（桥接器 + launchd）
-│       └── ui/                 #   首页微信快捷入口（补丁 + 组件）
-│   ├── wallpaper/              # （规划中）更换背景壁纸
-│   └── vision/                 # （规划中）识图
-└── .gitignore                  # 排除凭据/依赖/日志
+└── packages/
+    ├── wechat/                 # @dsh-plugins/wechat —— 微信
+    │   ├── install.mjs         #   部署：聊天服务（launchd）+ 首页快捷入口补丁
+    │   ├── src/                #   聊天服务源码
+    │   └── ui/                 #   首页微信快捷入口（补丁 + 组件）
+    ├── wallpaper/              # @dsh-plugins/wallpaper —— 更换背景壁纸
+    │   ├── wallpaper.mjs       #   CLI：set/list/off/apply/status
+    │   └── presets/            #   内置 4 张预设壁纸
+    └── vision/                 # @dsh-plugins/vision —— 识图
+        ├── install.mjs         #   部署：luma-mcp + 补丁 + profile 配置
+        ├── apply-patches.mjs   #   运行时补丁重放（幂等）
+        ├── patch-profile.mjs   #   cordis.patch.yml 幂等写入（API Key 不入库）
+        └── luma-mcp/           #   第三方识图服务（含本地补丁，不含 node_modules）
 ```
 
 ## 为什么部分是"补丁"而不是"插件"
@@ -62,8 +69,8 @@ DSH 客户端插件系统（`dsh.client` + slots）只能注入官方声明的�
 # 聊天服务代码改动：
 cp <运行时>/dsh-wechat-bridge.mjs packages/wechat/src/
 
-# UI 组件改动：先改 packages/wechat/ui/dsh-client-ui-workspace.client.js.patched（组件权威来源），
-# 再同步到运行时 bundle 生效（reapply.mjs 从 patched 自动提取补丁块）
+# UI/组件改动：先改对应包里的权威文件（如 packages/wechat/ui/*.patched），
+# 再同步到运行时 bundle 生效（reapply 脚本自动提取补丁块）
 
 # 提交：
 git add -A && git commit -m "..." && git push

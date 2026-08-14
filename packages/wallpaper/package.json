@@ -1,0 +1,25 @@
+{
+  "name": "@dsh-plugins/wallpaper",
+  "version": "1.0.0",
+  "description": "更换背景壁纸：一条命令给 DSH 换壁纸（内置预设/自选图片，可调透明度、一键关闭，HMR 即时生效）",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "wallpaper.mjs",
+    "presets",
+    "README.md"
+  ],
+  "bin": {
+    "dsh-plugins-wallpaper": "wallpaper.mjs"
+  },
+  "scripts": {
+    "install": "node wallpaper.mjs apply"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "wallpaper",
+    "background",
+    "theme"
+  ]
+}

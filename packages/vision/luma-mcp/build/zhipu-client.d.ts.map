@@ -1,0 +1,1 @@
+{"version":3,"file":"zhipu-client.d.ts","sourceRoot":"","sources":["../src/zhipu-client.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,aAAa,CAAC;AAC9C,OAAO,EAAE,4BAA4B,EAAE,MAAM,+BAA+B,CAAC;AAE7E,qBAAa,WAAY,SAAQ,4BAA4B;gBAC/C,MAAM,EAAE,UAAU;CAY/B"}

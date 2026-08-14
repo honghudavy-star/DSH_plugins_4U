@@ -1,0 +1,1 @@
+{"version":3,"file":"hunyuan-client.d.ts","sourceRoot":"","sources":["../src/hunyuan-client.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAEH,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,aAAa,CAAC;AAC9C,OAAO,EAAE,4BAA4B,EAAE,MAAM,+BAA+B,CAAC;AAE7E,qBAAa,aAAc,SAAQ,4BAA4B;gBACjD,MAAM,EAAE,UAAU;CAa/B"}

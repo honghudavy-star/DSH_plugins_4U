@@ -1,0 +1,1 @@
+{"version":3,"file":"volcengine-client.d.ts","sourceRoot":"","sources":["../src/volcengine-client.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,aAAa,CAAC;AAC9C,OAAO,EAAE,4BAA4B,EAAE,MAAM,+BAA+B,CAAC;AAE7E,qBAAa,gBAAiB,SAAQ,4BAA4B;gBACpD,MAAM,EAAE,UAAU;CAY/B"}

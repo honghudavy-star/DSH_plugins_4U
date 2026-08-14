@@ -1,0 +1,28 @@
+{
+  "name": "@dsh-plugins/vision",
+  "version": "1.0.0",
+  "description": "识图：让 DSH 看懂图片（GUI 粘贴/拖拽图片 → agent 自动调 image_understand 识别描述/OCR）",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "install.mjs",
+    "apply-patches.mjs",
+    "patch-profile.mjs",
+    "luma-mcp",
+    "README.md"
+  ],
+  "bin": {
+    "dsh-plugins-vision": "install.mjs"
+  },
+  "scripts": {
+    "install": "node install.mjs",
+    "install:reapply": "node install.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "vision",
+    "ocr",
+    "image"
+  ]
+}

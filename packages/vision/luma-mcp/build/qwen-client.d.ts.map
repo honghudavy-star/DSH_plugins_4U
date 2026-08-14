@@ -1,0 +1,1 @@
+{"version":3,"file":"qwen-client.d.ts","sourceRoot":"","sources":["../src/qwen-client.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAEH,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,aAAa,CAAC;AAC9C,OAAO,EAAE,4BAA4B,EAAE,MAAM,+BAA+B,CAAC;AAE7E,qBAAa,UAAW,SAAQ,4BAA4B;gBAC9C,MAAM,EAAE,UAAU;CAa/B"}
