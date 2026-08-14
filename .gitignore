@@ -1,0 +1,19 @@
+# 运行时/依赖（不入库）
+node_modules/
+npm-cache/
+*.log
+
+# macOS
+.DS_Store
+
+# 凭据与敏感数据（绝不入库）
+credentials.json
+tokens.json
+sync-buf.json
+session.json
+owner.json
+media/
+backup/
+*.pem
+*.key
+.env
