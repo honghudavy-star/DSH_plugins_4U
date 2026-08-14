@@ -13,7 +13,8 @@
     "dsh-plugins-wallpaper": "wallpaper.mjs"
   },
   "scripts": {
-    "install": "node wallpaper.mjs apply"
+    "install": "node wallpaper.mjs apply",
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "dsh",

@@ -45,7 +45,8 @@ console.log('3) 注入测试消息 …')
 await dshCall('session.prompt', {
   sessionId,
   mode: 'queue',
-  content: [{ type: 'text', text: '[微信消息] 来自「测试」：你好，这是一条链路测试。请只回复四个字：链路正常。' }],
+  // 这里只验证 DSH 自身链路，不伪造 bridge-origin correlation，也不会触发微信外发。
+  content: [{ type: 'text', text: '[DSH 链路测试] 你好，请只回复四个字：链路正常。' }],
 })
 console.log('   已注入，等待 agent 回复（最长 60s）…')
 

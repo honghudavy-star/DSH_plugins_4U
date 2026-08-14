@@ -22,34 +22,103 @@
 //   DSH_BASE              DSH HTTP 地址 (默认 http://127.0.0.1:3080)
 //   WECHAT_SESSION_ID     指定 DSH 会话 id
 //   WECHAT_CRED_DIR       凭据目录 (默认 ~/.dsh-wechat)
-//   WECHAT_OWNER          owner 微信用户 id（默认取第一个发消息者）
+//   WECHAT_OWNER          owner 微信用户 id（仅用于旧凭据迁移；新扫码自动绑定登录 userId）
 //   WECHAT_BRIDGE_PORT    本地 HTTP 接口端口 (默认 8790)
-//   WECHAT_BRIDGE_TOKEN   本地接口 Bearer token（设置后必须带 Authorization 头）
+//   WECHAT_BRIDGE_TOKEN   本地接口 Bearer token（未设置时生成并保存，始终强制认证）
+//   WECHAT_BRIDGE_TOKEN_FILE token 文件（默认凭据目录/bridge-token）
 //   DSH_CWD               新建会话工作目录 (默认当前目录)
 
 import { WeChatClient, MessageType } from 'wechat-ilink-client'
 import qrcode from 'qrcode-terminal'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
+import {
+  canonicalizeWithExistingAncestor,
+  credentialsFromLogin,
+  ensurePrivateDirectory,
+  isOwnerUser,
+  loadOrCreateSecret,
+  pathsOverlap,
+  prepareWechatCredentialState,
+  resolveLocalFile,
+  requireOwner,
+  requireSupportedNode,
+  validateWechatCredentialDirectory,
+  WECHAT_STATE_MARKER,
+  writePrivateFile,
+} from './bridge-security.mjs'
+import { createBridgeRequestHandler } from './bridge-http.mjs'
+import {
+  authorizeBridgeOriginEvent,
+  BridgeOriginStore,
+  queueBridgeOriginPrompt,
+} from './bridge-origin.mjs'
+import { fetchHistoryThroughWaterline, finishForwardingTurn, sendPendingReply } from './bridge-forwarding.mjs'
+
+requireSupportedNode()
 
 const DSH_BASE = process.env.DSH_BASE || 'http://127.0.0.1:3080'
 const HOST = new URL(DSH_BASE).host
-const CRED_DIR = process.env.WECHAT_CRED_DIR || join(homedir(), '.dsh-wechat')
+const RUNTIME_DIR = dirname(fileURLToPath(import.meta.url))
+const DEFAULT_CRED_DIR = resolve(join(homedir(), '.dsh-wechat'))
+const REQUESTED_CRED_DIR = resolve(process.env.WECHAT_CRED_DIR || DEFAULT_CRED_DIR)
+const ALLOW_LEGACY_CREDENTIALS = canonicalizeWithExistingAncestor(REQUESTED_CRED_DIR)
+  === canonicalizeWithExistingAncestor(DEFAULT_CRED_DIR)
+const CRED_DIR = validateWechatCredentialDirectory(REQUESTED_CRED_DIR, {
+  home: homedir(),
+  protectedPaths: [RUNTIME_DIR],
+  allowLegacy: ALLOW_LEGACY_CREDENTIALS,
+})
 const CRED_FILE = join(CRED_DIR, 'credentials.json')
 const SYNC_FILE = join(CRED_DIR, 'sync-buf.json')
 const SESSION_FILE = join(CRED_DIR, 'session.json')
 const OWNER_FILE = join(CRED_DIR, 'owner.json')
 const TOKENS_FILE = join(CRED_DIR, 'tokens.json')
 const FORWARD_STATE_FILE = join(CRED_DIR, 'forward-state.json')
+const BRIDGE_ORIGINS_FILE = join(CRED_DIR, 'bridge-origins.json')
 const MEDIA_DIR = join(CRED_DIR, 'media')
+const BRIDGE_TOKEN_FILE = canonicalizeWithExistingAncestor(
+  process.env.WECHAT_BRIDGE_TOKEN_FILE || join(CRED_DIR, 'bridge-token'),
+)
 const BRIDGE_PORT = Number(process.env.WECHAT_BRIDGE_PORT || 8790)
-const BRIDGE_TOKEN = process.env.WECHAT_BRIDGE_TOKEN || ''
 const SESSION_TITLE = '微信'
 const MAX_IMAGES_PER_MSG = 3
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // DSH 单图上限 5MB
+
+const EXPECTED_BRIDGE_TOKEN_FILE = canonicalizeWithExistingAncestor(join(CRED_DIR, 'bridge-token'))
+if (BRIDGE_TOKEN_FILE !== EXPECTED_BRIDGE_TOKEN_FILE) {
+  throw new Error('bridge token file must be exactly <credential directory>/bridge-token')
+}
+if (pathsOverlap(BRIDGE_TOKEN_FILE, RUNTIME_DIR)) {
+  throw new Error('bridge token file overlaps the runtime directory')
+}
+for (const reserved of [
+  CRED_FILE,
+  SYNC_FILE,
+  SESSION_FILE,
+  OWNER_FILE,
+  TOKENS_FILE,
+  FORWARD_STATE_FILE,
+  BRIDGE_ORIGINS_FILE,
+  join(CRED_DIR, WECHAT_STATE_MARKER),
+  join(CRED_DIR, 'bridge.out.log'),
+  join(CRED_DIR, 'bridge.err.log'),
+  MEDIA_DIR,
+]) {
+  if (pathsOverlap(BRIDGE_TOKEN_FILE, reserved)) throw new Error('bridge token file overlaps bridge state')
+}
+prepareWechatCredentialState(CRED_DIR, {
+  home: homedir(),
+  protectedPaths: [RUNTIME_DIR],
+  allowLegacy: ALLOW_LEGACY_CREDENTIALS,
+})
+ensurePrivateDirectory(MEDIA_DIR)
+const BRIDGE_TOKEN = loadOrCreateSecret(BRIDGE_TOKEN_FILE, process.env.WECHAT_BRIDGE_TOKEN)
+const bridgeOrigins = new BridgeOriginStore(BRIDGE_ORIGINS_FILE)
 
 // ---------- DSH API 客户端 ----------
 
@@ -142,15 +211,13 @@ function loadJson(file, fallback) {
   }
 }
 function saveJson(file, value) {
-  mkdirSync(CRED_DIR, { recursive: true })
-  writeFileSync(file, JSON.stringify(value, null, 2))
+  writePrivateFile(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 function loadCreds() { return loadJson(CRED_FILE, null) }
 function saveCreds(creds) { saveJson(CRED_FILE, creds) }
 function loadSessionId() { return loadJson(SESSION_FILE, {}).sessionId }
 function saveSessionId(id) { saveJson(SESSION_FILE, { sessionId: id }) }
-function loadOwner() { return loadJson(OWNER_FILE, {}).userId }
 function saveOwner(userId) { saveJson(OWNER_FILE, { userId }) }
 
 // context_token 持久化：iLink 要求回复必须携带最近一次入站的 context_token（约 24h 有效）。
@@ -185,7 +252,7 @@ async function handleInboundMedia(client, items) {
   const parts = []
   const notes = []
   let imgCount = 0
-  mkdirSync(MEDIA_DIR, { recursive: true })
+  ensurePrivateDirectory(MEDIA_DIR)
   for (const item of items || []) {
     if (!WeChatClient.isMediaItem(item)) continue
     try {
@@ -208,7 +275,7 @@ async function handleInboundMedia(client, items) {
       const ext = media.fileName ? '' : '.bin'
       const name = media.fileName || `wechat-${media.kind}-${Date.now()}${ext}`
       const path = join(MEDIA_DIR, `${Date.now()}-${safeFileName(name)}`)
-      writeFileSync(path, media.data)
+      writePrivateFile(path, media.data)
       const kindLabel = media.kind === 'file' ? '文件' : media.kind === 'video' ? '视频' : media.kind === 'voice' ? '语音' : '图片'
       notes.push(`[微信${kindLabel} 已保存] ${media.fileName || name} → ${path}`)
     } catch (e) {
@@ -219,14 +286,23 @@ async function handleInboundMedia(client, items) {
 }
 
 function parseSendMarkers(text) {
-  // 提取 [发送图片: path] / [发送文件: path]，返回 { files: [{kind, path}], clean: 剥掉标记后的文本 }
+  // 文件必须是存在的绝对路径，并在 realpath 后确认为普通文件。
   const files = []
+  const rejected = []
+  const add = (kind, path) => {
+    try {
+      files.push({ kind, path: resolveLocalFile(path.trim()) })
+    } catch (error) {
+      rejected.push(String(error.message || error))
+    }
+    return ''
+  }
   const clean = text
-    .replace(/\[发送图片:\s*([^\]]+)\]/g, (_, p) => { files.push({ kind: 'image', path: p.trim() }); return '' })
-    .replace(/\[发送文件:\s*([^\]]+)\]/g, (_, p) => { files.push({ kind: 'file', path: p.trim() }); return '' })
+    .replace(/\[发送图片:\s*([^\]]+)\]/g, (_, path) => add('image', path))
+    .replace(/\[发送文件:\s*([^\]]+)\]/g, (_, path) => add('file', path))
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-  return { files, clean }
+  return { files, clean, rejected }
 }
 
 // ---------- 主流程 ----------
@@ -234,7 +310,7 @@ function parseSendMarkers(text) {
 console.log(`[dsh-wechat v3] DSH=${DSH_BASE} 本地接口 http://127.0.0.1:${BRIDGE_PORT}`)
 
 // 1. 登录 / 恢复登录
-const saved = loadCreds()
+let saved = loadCreds()
 const client = saved ? new WeChatClient(saved) : new WeChatClient()
 
 if (!saved) {
@@ -250,11 +326,26 @@ if (!saved) {
     console.error('[微信] 登录失败:', result.message || 'unknown')
     process.exit(1)
   }
-  saveCreds({ accountId: result.accountId, token: result.botToken, baseUrl: result.baseUrl })
+  saved = credentialsFromLogin(result)
+  saveCreds(saved)
   console.log(`[微信] 登录成功 account_id=${result.accountId}`)
 } else {
   console.log(`[微信] 使用已保存凭据 account_id=${saved.accountId}`)
 }
+
+let ownerUserId
+try {
+  ownerUserId = requireOwner(saved, process.env.WECHAT_OWNER)
+} catch {
+  console.error('[微信] 无法确定 owner，已拒绝启动。请删除 credentials.json 后重新扫码，或设置 WECHAT_OWNER 完成旧凭据迁移。')
+  process.exit(1)
+}
+saveOwner(ownerUserId)
+if (saved && saved.userId !== ownerUserId) {
+  saved = { ...saved, userId: ownerUserId }
+  saveCreds(saved)
+}
+console.log(`[微信] 唯一 owner=${ownerUserId}`)
 
 // 2. 目标 DSH 会话（DSH 未启动时持续重试）
 let targetSessionId
@@ -276,14 +367,14 @@ let targetSessionId
 
 // 3. 一次性注入能力说明（每个会话只注入一次，agent 由此知道微信能力）
 {
-  const flagFile = join(CRED_DIR, `instructed-${targetSessionId}`)
+  const flagFile = join(CRED_DIR, `instructed-v4-${targetSessionId}`)
   if (!existsSync(flagFile)) {
     const instruction = `[系统说明] 你正通过微信与用户对话（消息由 dsh-wechat 桥接器转发）。你的回复会发回微信。
 能力与约定：
-1. 需要把本地文件发给微信用户时，在回复中加一行标记：[发送图片: 绝对路径] 或 [发送文件: 绝对路径]（标记行不会发给用户，文件会随回复一起发送）。
-2. 需要主动给用户发微信通知（不等待用户消息）时，用 bash 执行：
-   curl -s -X POST http://127.0.0.1:${BRIDGE_PORT}/send -H 'Content-Type: application/json' -d '{"text":"通知内容"}'
-   发文件时加 "file":"绝对路径"。
+1. 需要把本地文件发给微信用户时，在回复中加一行标记：[发送图片: 绝对路径] 或 [发送文件: 绝对路径]。相对路径、不存在的路径和目录会被拒绝。
+2. 需要主动给 owner 发微信通知（不等待用户消息）时，用 bash 执行：
+   node notify.mjs --text "通知内容"
+   发文件时加 --file "绝对路径"；notify 会从私有 token 文件自动完成本地接口认证。
 3. 定时提醒：用 launchd/cron 定时调用上述 /send 接口即可（见项目 README）。`
     try {
       await dshCall('session.prompt', {
@@ -299,109 +390,84 @@ let targetSessionId
   }
 }
 
-// 4. owner 追踪（第一个发消息的微信用户）
-let ownerUserId = process.env.WECHAT_OWNER || loadOwner()
-
 // 5. 本地 HTTP 接口：主动发送（定时提醒/通知）
 {
-  const server = createServer(async (req, res) => {
-    const send = (status, payload) => {
-      res.writeHead(status, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(payload))
-    }
-    if (BRIDGE_TOKEN && req.headers.authorization !== `Bearer ${BRIDGE_TOKEN}`) return send(401, { ok: false, error: 'unauthorized' })
-    if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, accountId: client.getAccountId?.() ?? null })
-    if (req.method === 'POST' && req.url === '/send') {
-      let body = {}
-      try {
-        body = JSON.parse(await readBody(req))
-      } catch {
-        return send(400, { ok: false, error: 'bad_json' })
-      }
-      const to = body.to || ownerUserId
-      if (!to) return send(400, { ok: false, error: 'no_owner_yet' })
-      try {
-        if (body.file) {
-          await client.sendMedia(to, body.file, typeof body.text === 'string' ? body.text : undefined, resolveToken(to))
-        } else if (typeof body.text === 'string' && body.text) {
-          await client.sendText(to, body.text, resolveToken(to))
-        } else {
-          return send(400, { ok: false, error: 'text_or_file_required' })
-        }
-        return send(200, { ok: true, to })
-      } catch (e) {
-        return send(500, { ok: false, error: String(e.message || e) })
-      }
-    }
-    return send(404, { ok: false, error: 'not_found' })
-  })
+  const server = createServer(createBridgeRequestHandler({
+    token: BRIDGE_TOKEN,
+    client,
+    getOwner: () => ownerUserId,
+    resolveToken,
+  }))
   server.listen(BRIDGE_PORT, '127.0.0.1', () => console.log(`[http] 主动发送接口就绪 http://127.0.0.1:${BRIDGE_PORT}/send`))
 }
 
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    let size = 0
-    req.on('data', (c) => { size += c.length; if (size > 1e6) { reject(new Error('too_large')); req.destroy() } else chunks.push(c) })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
-  })
-}
-
 // 6. 回复通道：DSH 会话里 agent 的回复 → 发回微信（支持文件标记）
-//    一个微信回合 = 一条带 [微信消息] 标记的 user/message 起、turn/end 止。
+//    一个微信回合 = 一条带持久化 bridge-origin correlation 的 user/message 起、turn/end 止。
 //    回合内多条 assistant 消息只取最后一条文本作为最终回复转发（避免只发中间过程、
 //    漏掉最终答案）。mux 断线期间产生的回复由 replayMissed() 从 session.history 补发。
-let pending = null // { from, text, files }
+let pending = null // { correlationId, from, text, files, rejectedFiles }
 let lastFlushedSeq = loadForwardState()
 let chain = Promise.resolve()
-
-function wechatSenderOf(evt) {
-  const content = evt?.data?.content
-  if (!Array.isArray(content)) return null
-  for (const b of content) {
-    if (b?.type === 'text' && typeof b.text === 'string') {
-      const m = b.text.match(/^\[微信消息\] 来自「([^」]+)」/)
-      if (m) return m[1]
-    }
-  }
-  return null
-}
 
 function loadForwardState() {
   const v = loadJson(FORWARD_STATE_FILE, null)
   return typeof v?.lastFlushedSeq === 'number' ? v.lastFlushedSeq : null
 }
-function persistForwardState() {
-  try { saveJson(FORWARD_STATE_FILE, { lastFlushedSeq }) } catch {}
+function persistForwardState(value = lastFlushedSeq) {
+  saveJson(FORWARD_STATE_FILE, { lastFlushedSeq: value })
 }
 
 async function flushPending(shouldSend) {
   const cur = pending
+  if (!cur) return
+  if (!shouldSend) {
+    pending = null
+    return
+  }
+  await sendPendingReply(cur, {
+    client,
+    resolveToken,
+    // 发送前再次 realpath 校验，缩短检查到使用之间的窗口。
+    resolveFile: resolveLocalFile,
+  })
+  bridgeOrigins.complete(cur.correlationId)
   pending = null
-  if (!cur || !shouldSend) return
-  const text = (cur.text || '').trim()
-  if (text) {
-    console.log(`[微信] 回复 → ${cur.from}: ${text.slice(0, 120)}`)
-    await client.sendText(cur.from, text, resolveToken(cur.from))
-  }
-  for (const f of cur.files) {
-    console.log(`[微信] 发送${f.kind} → ${cur.from}: ${f.path}`)
-    await client.sendMedia(cur.from, f.path, undefined, resolveToken(cur.from))
-  }
 }
 
 // 实时事件与断线补发共用同一状态机；发送失败时抛错、不推进 lastFlushedSeq，
 // 下次重连会重试该回合，日志可查。
-async function handleSessionEvent(evt) {
+async function handleSessionEvent(evt, { replaying = false } = {}) {
   if (!evt || typeof evt !== 'object') return
   const seq = typeof evt.seq === 'number' ? evt.seq : null
+  // A failed outbound turn is a durable ordering barrier. Do not let later GUI
+  // or assistant events replace its pending payload or advance past its seq.
+  if (pending?.blockedSeq != null && evt.type !== 'turn/end') return
   switch (evt.type) {
     case 'user/message': {
-      const from = wechatSenderOf(evt)
-      if (from) {
-        if (pending) await flushPending(true) // 兜底：上一回合异常未收尾时先发掉
-        pending = { from, text: null, files: [] }
+      const origin = authorizeBridgeOriginEvent(evt, ownerUserId, targetSessionId, bridgeOrigins)
+      if (origin) {
+        if (pending && pending.correlationId !== origin.correlationId) {
+          try {
+            await flushPending(true) // 兜底：上一回合异常未收尾时先发掉
+          } catch (error) {
+            if (pending.blockedSeq == null && seq != null) pending.blockedSeq = Math.max(0, seq - 1)
+            throw error
+          }
+        }
+        if (!pending || pending.correlationId !== origin.correlationId) {
+          pending = {
+            correlationId: origin.correlationId,
+            from: origin.owner,
+            text: null,
+            files: [],
+            rejectedFiles: 0,
+          }
+        }
+        // 首个相关回合也要有持久化水位；发送失败/进程重启后才能从该事件继续。
+        if (lastFlushedSeq == null && seq != null) {
+          lastFlushedSeq = seq - 1
+          persistForwardState(lastFlushedSeq)
+        }
       } else if (pending) {
         pending = null // 非微信输入（GUI 手动输入/系统注入）打断转发关联
       }
@@ -411,19 +477,31 @@ async function handleSessionEvent(evt) {
       if (!pending) break
       const text = extractAssistantText(evt)
       if (text) {
-        const { files, clean } = parseSendMarkers(text)
+        const { files, clean, rejected } = parseSendMarkers(text)
         pending.text = clean
         pending.files = files
+        pending.rejectedFiles = rejected.length
       }
       break
     }
     case 'turn/end': {
       const isNew = lastFlushedSeq == null || seq == null || seq > lastFlushedSeq
-      await flushPending(isNew)
-      if (isNew && seq != null && (lastFlushedSeq == null || seq > lastFlushedSeq)) {
-        lastFlushedSeq = seq
-        persistForwardState()
-      }
+      const state = { pending, lastFlushedSeq }
+      const result = await finishForwardingTurn({
+        state,
+        shouldSend: isNew,
+        seq,
+        sendPending: (value) => sendPendingReply(value, {
+          client,
+          resolveToken,
+          resolveFile: resolveLocalFile,
+        }),
+        completeOrigin: (correlationId) => bridgeOrigins.complete(correlationId),
+        persistWater: persistForwardState,
+      })
+      pending = state.pending
+      lastFlushedSeq = state.lastFlushedSeq
+      if (result.recoveredFromBlock && !replaying) await replayMissed()
       break
     }
   }
@@ -435,24 +513,16 @@ function queueEvent(evt) {
 }
 
 async function fetchHistoryPages() {
-  // 从尾部向前翻页，直到覆盖 lastFlushedSeq（最多 3 页，防止异常时拉爆）
-  const pages = []
-  let beforeSeq
-  for (let i = 0; i < 3; i++) {
-    const hist = await dshCall('session.history', {
+  // 从尾部持续向前翻页，只有覆盖持久化水位或服务明确 hasMore=false
+  // 后才允许处理。硬上限触发时整批失败，避免跳过尚未读取的旧回复。
+  return fetchHistoryThroughWaterline({
+    lastFlushedSeq,
+    fetchPage: ({ maxMessages, beforeSeq }) => dshCall('session.history', {
       sessionId: targetSessionId,
-      maxMessages: 100,
+      maxMessages,
       ...(beforeSeq != null ? { beforeSeq } : {}),
-    })
-    const events = (hist.events || []).map((e) => e.event).filter((e) => e && typeof e.seq === 'number')
-    if (!events.length) break
-    pages.unshift(events)
-    const oldest = events[0].seq
-    if (lastFlushedSeq != null && oldest <= lastFlushedSeq) break
-    if (!hist.hasMore) break
-    beforeSeq = oldest
-  }
-  return pages.flat()
+    }),
+  })
 }
 
 async function replayMissed() {
@@ -473,7 +543,7 @@ async function replayMissed() {
   const todo = all.filter((e) => e.seq > lastFlushedSeq)
   if (!todo.length) return
   console.log(`[dsh] 事件流恢复，补发 ${todo.length} 条断线期间的事件…`)
-  for (const evt of todo) await handleSessionEvent(evt)
+  for (const evt of todo) await handleSessionEvent(evt, { replaying: true })
 }
 
 openMux({
@@ -493,26 +563,34 @@ client.on('message', async (msg) => {
     if (msg.message_type !== MessageType.USER) return
     const from = msg.from_user_id
     if (!from) return
-    if (!ownerUserId) { ownerUserId = from; saveOwner(from); console.log(`[微信] owner 绑定: ${from}`) }
-    if (msg.context_token) saveToken(from, msg.context_token)
-
     const text = (WeChatClient.extractText(msg) || '').trim()
+
+    if (!isOwnerUser(from, ownerUserId)) {
+      // 在下载媒体、保存 token 或调用 DSH 前拒绝，未授权联系人无法产生本地副作用。
+      console.warn(`[微信] 拒绝未授权用户: ${from}`)
+      return
+    }
+
+    if (msg.context_token) saveToken(from, msg.context_token)
     const { parts, notes } = await handleInboundMedia(client, msg.item_list)
 
-    const content = []
-    const lines = [`[微信消息] 来自「${from}」`]
-    if (text) lines.push(text)
-    if (notes.length) lines.push(notes.join('\n'))
-    content.push({ type: 'text', text: lines.join('\n') })
-    for (const p of parts) content.push(p)
-
     console.log(`[微信] ${from}: ${(text || notes.join('; ')).slice(0, 120)}`)
-    await dshCall('session.prompt', {
-      sessionId: targetSessionId,
-      mode: 'queue',
-      content,
+    await queueBridgeOriginPrompt({
+      store: bridgeOrigins,
+      owner: ownerUserId,
+      submit: ({ marker }) => {
+        const lines = [marker]
+        if (text) lines.push(text)
+        if (notes.length) lines.push(notes.join('\n'))
+        const content = [{ type: 'text', text: lines.join('\n') }, ...parts]
+        return dshCall('session.prompt', {
+          sessionId: targetSessionId,
+          mode: 'queue',
+          content,
+        })
+      },
     })
-    // 回复转发由第 6 节状态机按 user/message 事件里的 [微信消息] 标记自动关联，无需在此登记
+    // 回复转发由第 6 节状态机消费上面登记的一次性 correlation 后自动关联。
   } catch (e) {
     console.error('[处理微信消息失败]', e.message)
   }
@@ -527,7 +605,7 @@ client.on('sessionExpired', () => {
 // 8. 开始长轮询（带游标持久化）
 await client.start({
   loadSyncBuf: () => { try { return readFileSync(SYNC_FILE, 'utf8') } catch { return undefined } },
-  saveSyncBuf: (buf) => { mkdirSync(CRED_DIR, { recursive: true }); writeFileSync(SYNC_FILE, buf) },
+  saveSyncBuf: (buf) => { writePrivateFile(SYNC_FILE, buf) },
 })
 
 console.log('[dsh-wechat] 运行中。微信私信 → DSH 会话；回复自动回微信；支持图片/文件。Ctrl-C 停止。')

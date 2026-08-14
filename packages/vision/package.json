@@ -4,10 +4,14 @@
   "description": "识图：让 DSH 看懂图片（GUI 粘贴/拖拽图片 → agent 自动调 image_understand 识别描述/OCR）",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "files": [
     "install.mjs",
     "apply-patches.mjs",
     "patch-profile.mjs",
+    "lib",
     "luma-mcp",
     "README.md"
   ],
@@ -16,7 +20,8 @@
   },
   "scripts": {
     "install": "node install.mjs",
-    "install:reapply": "node install.mjs"
+    "install:reapply": "node install.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "dsh",

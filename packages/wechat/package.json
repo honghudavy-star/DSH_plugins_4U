@@ -4,9 +4,14 @@
   "description": "微信：手机微信和电脑 DSH 互相聊天（自动回复、图片文件、断线自动恢复并补发漏掉的回复）+ DSH 首页绿色微信快捷入口",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "files": [
     "install.mjs",
-    "src",
+    "src/*.mjs",
+    "src/*.json",
+    "src/*.md",
     "ui",
     "README.md"
   ],
@@ -15,7 +20,8 @@
   },
   "scripts": {
     "install": "node install.mjs",
-    "install:service": "node install.mjs"
+    "install:service": "node install.mjs",
+    "test": "npm test --prefix src"
   },
   "keywords": [
     "dsh",

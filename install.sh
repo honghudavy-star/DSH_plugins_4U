@@ -7,8 +7,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+INSTALL_TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$INSTALL_TMP_DIR"' EXIT
 
 echo "== DSH_plugins_4U 一键安装 =="
 
@@ -19,29 +19,54 @@ else
   PKGS=("$@")
 fi
 
+# 先完整校验参数，避免安装一部分后才因拼写错误停下。
+for pkg in "${PKGS[@]}"; do
+  case "$pkg" in
+    wechat|wallpaper|vision) ;;
+    *)
+      printf '!! 未知功能包: %s（当前可用: wechat wallpaper vision）\n' "${pkg}" >&2
+      exit 1
+      ;;
+  esac
+done
+
+INSTALLED_PKGS=()
 for pkg in "${PKGS[@]}"; do
   echo ""
   case "$pkg" in
     wechat)    NAME="微信" ;;
     wallpaper) NAME="更换背景壁纸" ;;
     vision)    NAME="识图" ;;
-    *) echo "!! 未知功能包: $pkg（当前可用: wechat wallpaper vision）"; continue ;;
   esac
-  echo ">> [$NAME] @dsh-plugins/$pkg"
-  if [ ! -d "$REPO_DIR/packages/$pkg" ]; then
-    echo "  !! 包目录不存在: packages/$pkg"
-    continue
+  echo ">> [${NAME}] @dsh-plugins/${pkg}"
+  if [ ! -d "$REPO_DIR/packages/${pkg}" ]; then
+    printf '  !! 包目录不存在: packages/%s\n' "${pkg}" >&2
+    exit 1
   fi
-  (cd "$REPO_DIR/packages/$pkg" && npm pack --pack-destination "$TMP" >/dev/null)
-  TGZ="$(ls -1 "$TMP"/dsh-plugins-"$pkg"-*.tgz | head -1)"
-  npm install --global --foreground-scripts --no-audit --no-fund "$TGZ"
-  rm -f "$TMP"/*.tgz
+  PACK_DIR="$(mktemp -d "${INSTALL_TMP_DIR}/${pkg}.XXXXXX")"
+  (cd "$REPO_DIR/packages/${pkg}" && npm pack --pack-destination "$PACK_DIR" >/dev/null)
+  TGZS=("${PACK_DIR}"/*.tgz)
+  if [ "${#TGZS[@]}" -ne 1 ] || [ ! -f "${TGZS[0]}" ]; then
+    printf '  !! 打包结果异常：packages/%s 应只生成一个 tarball\n' "${pkg}" >&2
+    exit 1
+  fi
+  TGZ="${TGZS[0]}"
+  npm install --global --foreground-scripts --no-audit --no-fund -- "$TGZ"
+  INSTALLED_PKGS+=("$pkg")
 done
 
 echo ""
-echo "== 完成 =="
-echo "1) 微信：聊天服务已在后台运行（首次使用请扫码登录，见 packages/wechat/README.md）；"
-echo "         首页会自动出现绿色微信按钮（没出现就刷新浏览器）。"
-echo "2) 更换背景壁纸：已应用默认壁纸，可用 dsh-plugins-wallpaper set/list/off 调整。"
-echo "3) 识图：配置已写入；首次安装若提示输入 API Key 请照做。"
-echo "         注意：识图需重启 DSH 生效（停掉 dsh web 后重新 npm exec @deepseek-ai/dsh web）。"
+printf '== 完成：已安装 %d 个功能包 ==\n' "${#INSTALLED_PKGS[@]}"
+for pkg in "${INSTALLED_PKGS[@]}"; do
+  case "$pkg" in
+    wechat)
+      echo "微信：安装流程已完成；首次使用请扫码登录（见 packages/wechat/README.md）。"
+      ;;
+    wallpaper)
+      echo "更换背景壁纸：命令已安装，可用 dsh-plugins-wallpaper set/list/off 调整。"
+      ;;
+    vision)
+      echo "识图：安装流程已完成；重启 DSH 后生效。"
+      ;;
+  esac
+done

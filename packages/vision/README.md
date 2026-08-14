@@ -40,13 +40,21 @@ npm exec @deepseek-ai/dsh web
 ## 出问题了怎么办
 
 - 重跑一遍安装（幂等）：`npx dsh-plugins-vision`
-- DSH 升级后识图失效（npx 缓存被还原）：重跑安装即可恢复
+- DSH 升级后识图失效（npx 缓存被还原）：重跑安装即可恢复；若存在多个完整缓存，
+  先将 `DSH_NPX_RUNTIME_DIR` 设为实际启动 DSH 的 npm-exec 目录
 - 图片路径读不了：确认环境变量 `LUMA_ALLOW_ANY_PATH=1` 还在配置里（重跑安装会补）
 
 ## 技术细节（给维护者）
 
-- `luma-mcp/` — 第三方识图服务（含本地补丁的 build，不含 node_modules，安装时装依赖）
+- `luma-mcp/` — 预编译识图服务（只有可运行的 `build/`，不会在安装时尝试编译缺失源码）；
+  每次安装都按锁文件执行 `npm ci --omit=dev`，不会沿用旧 `node_modules`。部署会先解析
+  现有祖先的真实路径并验证目标身份；根目录、HOME、与源码重叠的路径，以及非空但并非
+  可验证 luma-mcp 运行时的目录都会在任何暂存或写入前被拒绝
 - `apply-patches.mjs` — 运行时补丁重放（luma 白名单/魔数嗅探 + npx 缓存里的
-  dsh-llm-deepseek 图片压平 + dsh-host-apiproxy 受理门放行），幂等
+  dsh-llm-deepseek 图片压平 + dsh-host-apiproxy 受理门放行）。只有一个完整 DSH
+  缓存时可自动选择；多个候选时会列出路径并要求用 `DSH_NPX_RUNTIME_DIR` 显式指定，
+  不会用 mtime 猜测。未知版本同样会在写入前安全停止
 - `patch-profile.mjs` — `~/.dsh/profiles/web/cordis.patch.yml` 幂等写入
-  （mcp-vision + persona 识图指令；API Key 复用已有配置/环境变量/交互输入，不入库）
+  （自动更新旧 luma 路径；修改前保存 `.bak`，配置/备份为 `0600`、目录为 `0700`；
+  profile 为符号链接时安全更新其真实目标并保留链接，备份也放在真实目标旁；
+  API Key 复用已有配置/环境变量/交互输入，不入库）

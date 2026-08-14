@@ -14,9 +14,9 @@
 ## 怎么安装
 
 ```bash
-cd /Users/hungdavy/DSH_plugins_4U
+cd DSH_plugins_4U
 ./install.sh          # 一键装全部；或只装这一个：
-npm pack ./packages/wechat-shortcut && npm install --global --foreground-scripts dsh-plugins-wechat-*.tgz
+npm pack ./packages/wechat && npm install --global --foreground-scripts dsh-plugins-wechat-*.tgz
 ```
 
 装完**不用重启**：DSH 会自动热更新，几秒内首页就能看到绿色微信入口

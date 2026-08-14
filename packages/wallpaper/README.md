@@ -32,3 +32,7 @@ dsh-plugins-wallpaper status                      # 当前状态
 （`dsh-client-ui-theme/lib/client.js`）里的一段 CSS：
 `body::before` 全屏背景浮层（`pointer-events:none`、可调 opacity），由 DSH 内置 HMR 自动热更新。
 `off` 即把该段代码移除。DSH 升级还原后，重跑安装（或 `dsh-plugins-wallpaper apply`）即可恢复。
+
+若 `~/.npm/_npx` 中同时存在多个完整 DSH 主题缓存，脚本不会用文件时间猜测
+当前运行目标；请设置 `DSH_NPX_RUNTIME_DIR` 为实际启动 DSH 的 npm-exec 运行时目录后重试。
+壁纸 bundle 与配置更新会先完整暂存，任一提交失败都会回滚已经替换的文件。

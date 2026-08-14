@@ -25,7 +25,7 @@
 
 ## 使用
 
-前置：DSH Web GUI 在运行（`dsh web`，默认 http://127.0.0.1:3080）。
+前置：Node.js 22 或更高版本，且 DSH Web GUI 在运行（`dsh web`，默认 http://127.0.0.1:3080）。
 
 ```bash
 cd ~/DSH/plugins/self-built/dsh-wechat   # 本项目目录（2026-08 起迁至 DSH 专用目录）
@@ -34,12 +34,12 @@ node dsh-wechat-bridge.mjs
 
 首次运行：
 1. 终端显示二维码 → **手机微信「扫一扫」** → 手机上确认登录
-2. 凭据保存到 `~/.dsh-wechat/credentials.json`，之后自动恢复登录
-3. 桥接器自动创建/复用 DSH「微信」会话
+2. 凭据和扫码结果中的 `userId` 保存到 `~/.dsh-wechat/credentials.json`，该账号自动成为唯一 owner，之后自动恢复登录
+3. 桥接器自动创建/复用 DSH「微信」会话。其他联系人会在下载媒体、保存 token 或调用 DSH 前被拒绝
 
 之后：
 - 微信私信发给 iLink bot → 消息出现在 DSH GUI「微信」会话 → agent 处理 → 回复自动发回微信
-- DSH GUI 里同一个会话也可以继续对话
+- DSH GUI 里同一个会话也可以继续对话；GUI 输入不会被当成微信入站，也不会触发自动外发
 
 ## 环境变量
 
@@ -48,16 +48,28 @@ node dsh-wechat-bridge.mjs
 | `DSH_BASE` | DSH HTTP 地址 | `http://127.0.0.1:3080` |
 | `WECHAT_SESSION_ID` | 指定 DSH 会话 id（不指定则持久化复用） | 自动 |
 | `WECHAT_CRED_DIR` | 凭据目录 | `~/.dsh-wechat` |
+| `WECHAT_OWNER` | 旧凭据没有 `userId` 时用于一次性迁移的 owner 用户 id | 无 |
+| `WECHAT_BRIDGE_PORT` | 本地通知接口端口 | `8790` |
+| `WECHAT_BRIDGE_TOKEN` | 显式本地接口 token；未配置时自动生成 | 自动 |
+| `WECHAT_BRIDGE_TOKEN_FILE` | token 私有文件 | `~/.dsh-wechat/bridge-token` |
 | `DSH_CWD` | 新建会话工作目录 | 当前目录 |
+
+`POST /send` 和 `GET /health` 都强制校验 Bearer token；`body.to` 只能省略或等于唯一 owner。`notify.mjs` 默认读取 token 文件。发送文件只接受存在的绝对路径和普通文件：
+
+```bash
+node notify.mjs --text "报告好了" --file /absolute/path/report.pdf
+```
+
+安全边界：`WECHAT_BRIDGE_TOKEN_FILE` 若显式设置，canonical 路径也必须恰好是凭据目录下的 `bridge-token`。自定义 `WECHAT_CRED_DIR` 必须是空/新目录，或带有安装器创建的 dsh-wechat 状态标记；目录出现未知顶层文件时会拒绝启动，避免误把 HOME/文档目录递归改权。
 
 ## 持续化（launchd 常驻服务）
 
-已配置为 macOS launchd 服务：**开机自启、崩溃自动重启、只绑定一次**（凭据自动恢复，不再扫码）。
+包安装器会先执行选定的 `DSH_PLUGINS_NODE --version`，只有可执行的 Node.js 22+ 才生成 macOS launchd 服务。升级会在私有 staging 目录按 `package-lock.json` 执行 `npm ci`，准备和 launchd 激活任一步失败都会恢复旧运行时、token、owner 与 plist：
+**开机自启、崩溃自动重启、只绑定一次**（凭据自动恢复，不再扫码）。
 
 ```bash
-# 安装服务（已执行）
-cp com.dsh.wechatbridge.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dsh.wechatbridge.plist
+# 安装或升级服务（在仓库根目录执行）
+./install.sh wechat
 
 # 日常管理
 launchctl print gui/$(id -u)/com.dsh.wechatbridge   # 查看状态
@@ -73,8 +85,11 @@ rm ~/.dsh-wechat/credentials.json && launchctl kickstart -k gui/$(id -u)/com.dsh
 
 ## 说明与限制
 
-- **v1 仅文本**：收发文本消息；图片/文件/语音的收发（库已支持 `sendMedia`）留待扩展。
-- **回复关联**：一条微信消息 → 一轮回复（agent 的最终文本回复发回发送者）。同一会话里 GUI 手动对话与微信对话交错时以最近一次注入为准。
+- **媒体**：图片可注入 DSH，其他媒体保存到私有凭据目录；外发文件必须是存在的绝对路径和普通文件。
+- **授权**：新扫码直接绑定登录结果中的 `userId`；恢复登录只接受凭据中的 `userId` 或显式 `WECHAT_OWNER`。旧 `owner.json` 可能来自早期“首个来信者绑定”，现在只作为镜像、不参与信任；两项可信来源都没有时失败关闭。
+- **回复关联**：每条已授权微信消息都带一个私有状态中登记、绑定会话与事件序号、一次性消费的 bridge-origin correlation。只有该回合的最终回复会发回 owner；伪造可见的 owner 文本前缀不会触发外发。
+- **断线补发**：历史会持续向前分页，直到覆盖持久化转发水位或服务明确没有更早事件；未取完整批次时不会处理事件或推进水位。
+- **安装目标**：自定义运行目录只能是空/新目录或可验证的 `dsh-wechat` 运行时；HOME、源码目录、凭据/plist 路径及普通非插件目录都会在 staging 和改权前拒绝。
 - **iLink bot 身份限制**（官方特性，所有 iLink 方案相同）：只有私信（DM）可靠；普通微信群消息大多不会推送。
 - **个人号自动化风险**：iLink 是官方开放接口，但腾讯可能收紧政策，建议小号低频使用。
 - 会话过期（`sessionExpired`）时按提示删除 `~/.dsh-wechat/credentials.json` 重新扫码。
@@ -82,4 +97,6 @@ rm ~/.dsh-wechat/credentials.json && launchctl kickstart -k gui/$(id -u)/com.dsh
 ## 文件
 
 - `dsh-wechat-bridge.mjs` — 桥接器主程序
+- `bridge-origin.mjs` — 一次性入站 correlation 的持久化与校验
+- `bridge-forwarding.mjs` — 回复发送与持久化水位提交
 - `test-dsh-side.mjs` — DSH 侧链路测试（`node test-dsh-side.mjs`）

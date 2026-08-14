@@ -188,9 +188,12 @@ dsh-plugins-vision
 ## 数据与安全边界
 
 - 仓库不应包含微信登录凭据或第三方 API Key。
+- 微信扫码结果中的 `userId` 是唯一 owner；其他微信账号不能把消息送入 DSH。本机主动发送接口必须携带私有 Bearer token。
+- owner 可以发送任意目录中的文件，但路径必须是存在的绝对路径，且目标必须是普通文件。
 - 微信运行数据与日志保存在 `~/.dsh-wechat/`。
 - 壁纸设置保存在 `~/.dsh-plugins/wallpaper/`。
 - 识图 API Key 保存在 `~/.dsh/profiles/web/cordis.patch.yml`。
+- 识图运行时补丁目前只支持已验证的 DSH `0.1.0-rc.6`；未知版本或补丁锚点变化会在写文件前失败关闭。
 - 插件会修改 DSH 的本地缓存、profile 或客户端 bundle；执行前请确认你理解这些变更。
 
 ## 项目结构
@@ -240,6 +243,26 @@ DSH_plugins_4U/
 <br>
 确认 SiliconFlow API Key 已写入 profile，并完整停止、重新启动 DSH Web 进程。仅刷新浏览器不足以加载运行时补丁和新配置。
 </details>
+
+---
+
+## 开发与验证
+
+提交前请确认运行时凭据没有进入仓库：
+
+```bash
+grep -rnE "(sk-|gho_|m0-|AKIA|BEGIN .*PRIVATE KEY)" .
+```
+
+自动回归测试由 `.github/workflows/ci.yml` 执行；本地可分别运行：
+
+```bash
+npm test --prefix packages/wechat
+npm test --prefix packages/wallpaper
+npm test --prefix packages/vision
+```
+
+运行时目录 `~/.dsh-wechat/` 与 `~/.dsh/profiles/` 内的凭据严禁入库。
 
 ---
 

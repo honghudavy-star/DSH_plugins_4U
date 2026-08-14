@@ -3,6 +3,9 @@
   "version": "1.7.1",
   "description": "Multi-model vision understanding MCP server. Supports GLM-4.6V (Zhipu), DeepSeek-OCR (SiliconFlow - Free), Qwen3-VL-Flash (Aliyun), and Doubao-Seed-1.6 (Volcengine)",
   "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "files": [
     "build/",
     "package.json",
@@ -13,14 +16,7 @@
   },
   "main": "./build/index.js",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
-    "prepare": "npm run build",
-    "typecheck": "tsc -p tsconfig.check.json",
-    "test:local": "tsx test/test-local.ts",
-    "test:unit": "tsx test/test-custom.ts && tsx test/test-task-types.ts",
-    "test:mcp": "tsx test/test-mcp-stdio.ts",
-    "test:http": "tsx test/test-mcp-http.ts"
+    "start": "node build/index.js"
   },
   "keywords": [
     "mcp",
@@ -54,13 +50,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.4",
     "axios": "^1.15.1",
-    "sharp": "^0.33.5",
+    "sharp": "^0.35.3",
     "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.2",
-    "tsx": "^4.20.6",
-    "typescript": "^5.7.2"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"

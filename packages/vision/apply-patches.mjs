@@ -4,45 +4,46 @@
  * 运行：node apply-patches.mjs
  * 覆盖：luma-mcp（白名单全局化 + 魔数嗅探）、dsh-llm-deepseek（图片块压平）、
  *       dsh-host-apiproxy（受理门放行）。
- * 注意：npx 缓存路径随 `npm exec` 重建可能变化；如路径不存在请先找到新的 @deepseek-ai 目录。
+ * 注意：可用 DSH_NPX_RUNTIME_DIR 显式指定当前 npm-exec 运行时；未指定时只在
+ *       缓存中恰好存在一个完整运行时时自动选择，多候选会安全停止。
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  commitPatchFiles,
+  PatchPlanError,
+  planPatchFiles,
+  resolveNpxRuntime,
+} from './lib/patch-engine.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // npx 缓存根（npm exec 重建后路径的 hash 会变，脚本会扫描）
 const NPM_NPX_ROOT = process.env.DSH_NPX_ROOT || join(homedir(), ".npm", "_npx");
 // luma 运行时目录（由 install.mjs 部署，可通过环境变量覆盖）
-const LUMA_DIR = process.env.DSH_VISION_LUMA_DIR || "/Users/hungdavy/DSH/plugins/third-party/luma-mcp/package";
+const LUMA_DIR = process.env.DSH_VISION_LUMA_DIR
+  || join(homedir(), "DSH", "plugins", "third-party", "luma-mcp", "package");
 const LUMA = join(LUMA_DIR, "build", "image-processor.js");
 
-function npxDeepSeek(dir) {
-  // find the npx cache dir containing @deepseek-ai
-  if (!existsSync(NPM_NPX_ROOT)) return null;
-  for (const entry of readdirSync(NPM_NPX_ROOT)) {
-    const p = join(NPM_NPX_ROOT, entry, "node_modules", "@deepseek-ai");
-    if (existsSync(join(p, dir))) return p;
-  }
-  return null;
+let runtime;
+try {
+  runtime = resolveNpxRuntime({
+    explicit: process.env.DSH_NPX_RUNTIME_DIR,
+    root: NPM_NPX_ROOT,
+  });
+} catch (error) {
+  console.error(`运行时选择失败：${error.message}`);
+  process.exit(1);
 }
-import { readdirSync } from "node:fs";
+console.log(`使用 DSH npm-exec 运行时: ${runtime.runtimeRoot} (${runtime.version})`);
 
-const results = [];
+const patchTargets = new Map();
 function patchFile(path, label, pairs) {
-  if (!path || !existsSync(path)) return void results.push(`✗ ${label}: 文件不存在 ${path}`);
-  let s = readFileSync(path, "utf8");
-  for (const [oldS, newS, marker] of pairs) {
-    if (marker && s.includes(marker)) { results.push(`· ${label}: 已打过（跳过）`); continue; }
-    if (oldS && s.includes(oldS)) {
-      s = s.replace(oldS, newS);
-      results.push(`✓ ${label}: 已应用`);
-    } else {
-      results.push(`✗ ${label}: 未找到替换目标，可能文件已变化`);
-    }
+  const target = patchTargets.get(path) ?? { path, label, patches: [] };
+  for (const [oldText, newText, marker] of pairs) {
+    target.patches.push({ label, oldText, newText, marker });
   }
-  writeFileSync(path, s);
+  patchTargets.set(path, target);
 }
 
 const T = "\t";
@@ -131,8 +132,7 @@ function sniffMimeType(buffer) {
 ]]);
 
 /* ── Patch B: dsh-llm-deepseek ──────────────────────────────────────── */
-const DS = npxDeepSeek("dsh-llm-deepseek");
-const DS_FILE = DS && join(DS, "dsh-llm-deepseek", "lib", "index.js");
+const DS_FILE = join(runtime.scopeDir, "dsh-llm-deepseek", "lib", "index.js");
 patchFile(DS_FILE, "deepseek 适配器图片压平", [[
   `import { CONTEXT_WINDOW_EXCEEDED_CODE, CallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId, RetryPolicySchema, assertUsableApiKey, attributionHeaders, contentHasImage, isContextWindowExceededError, isQuotaExceededError, resolveRetryPolicy } from "@deepseek-ai/dsh-llm";`,
   `import { join } from "node:path";
@@ -213,19 +213,21 @@ function serializeTextWithImages(blocks) {
 ]]);
 
 /* ── Patch C: dsh-host-apiproxy 受理门 ──────────────────────────────── */
-const AP = npxDeepSeek("dsh-host-apiproxy");
-const AP_FILE = AP && join(AP, "dsh-host-apiproxy", "lib", "index.js");
+const AP_FILE = join(runtime.scopeDir, "dsh-host-apiproxy", "lib", "index.js");
 patchFile(AP_FILE, "apiproxy 受理门放行", [[
   `${T}${T}${T}${T}${T}${T}if (hasImage) {\n${T}${T}${T}${T}${T}${T}${T}const current = selectionFor(agent).current;\n${T}${T}${T}${T}${T}${T}${T}const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);\n${T}${T}${T}${T}${T}${T}${T}if (modelInfo.inputModalities !== void 0 && !modelInfo.inputModalities.includes("image")) return err(request, {\n${T}${T}${T}${T}${T}${T}${T}${T}code: "attachment-error",\n${T}${T}${T}${T}${T}${T}${T}${T}message: \`Model "\${current.model}" does not support image input.\`,\n${T}${T}${T}${T}${T}${T}${T}${T}details: { reason: "MODEL_DOES_NOT_SUPPORT_IMAGES" }\n${T}${T}${T}${T}${T}${T}${T}});\n${T}${T}${T}${T}${T}${T}}`,
   `${T}${T}${T}${T}${T}${T}// DSH 本地补丁：不再按 inputModalities 拒绝图片消息。\n${T}${T}${T}${T}${T}${T}// 文本模型（DeepSeek）由适配器把图片块压平为带路径的文本标记，agent 据此调用 image_understand 识图；\n${T}${T}${T}${T}${T}${T}// 多模态模型仍收到原始图片块。\n${T}${T}${T}${T}${T}${T}if (hasImage) {\n${T}${T}${T}${T}${T}${T}${T}void selectionFor(agent);\n${T}${T}${T}${T}${T}${T}}`,
   "不再按 inputModalities 拒绝图片消息",
 ]]);
 
-/* 汇总 */
-console.log(results.join("\n"));
-const failed = results.filter((r) => r.startsWith("✗"));
-if (failed.length > 0) {
-  console.error(`\n${failed.length} 项失败；请人工检查后重试。`);
-  process.exit(1);
+/* 汇总：所有目标先在内存完成验证，确认无误后再事务写入。 */
+try {
+  const plan = planPatchFiles([...patchTargets.values()]);
+  console.log(plan.results.join("\n"));
+  commitPatchFiles(plan.writes);
+  console.log("\n全部补丁就绪。修改对运行中的进程不生效，需重启 dsh web。");
+} catch (error) {
+  if (error instanceof PatchPlanError) console.error(error.results.join("\n"));
+  console.error(`\n${error.message}`);
+  process.exitCode = 1;
 }
-console.log("\n全部补丁就绪。修改对运行中的进程不生效，需重启 dsh web。");
