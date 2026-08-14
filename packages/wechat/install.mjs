@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// install.mjs — 部署微信桥接器（@dsh-plugins/wechat-bridge）
-// 幂等：拷贝源码 → 安装依赖（首次）→ 生成 launchd plist → 启动/刷新服务。
+// install.mjs — 部署「微信」功能包（@dsh-plugins/wechat）
+// 幂等：① 部署聊天服务（拷贝源码→装依赖→生成 plist→启动 launchd）② 打首页微信入口 UI 补丁。
 //
 // 环境变量:
 //   DSH_PLUGINS_RUNTIME_DIR  运行时安装目录（默认 $HOME/DSH/plugins/self-built/dsh-wechat）
@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, 'src');
 const LABEL = 'com.dsh.wechatbridge';
-const PREFIX = '[dsh-plugins/wechat-bridge]';
+const PREFIX = '[dsh-plugins/wechat]';
 
 function runtimeDir() {
   if (process.env.DSH_PLUGINS_RUNTIME_DIR) return process.env.DSH_PLUGINS_RUNTIME_DIR;
@@ -91,15 +91,23 @@ function main() {
     }
   })();
   if (running) {
-    console.log(`${PREFIX} 服务已在运行，跳过（如需重启: launchctl kickstart -k gui/${uid}/${LABEL}）`);
+    console.log(`${PREFIX} 聊天服务已在运行，跳过（如需重启: launchctl kickstart -k gui/${uid}/${LABEL}）`);
   } else {
     try {
       execSync(`launchctl bootstrap gui/${uid} "${plistDst}"`, { stdio: 'inherit' });
     } catch {
       execSync(`launchctl load "${plistDst}"`, { stdio: 'inherit' });
     }
-    console.log(`${PREFIX} launchd 服务已启动: ${LABEL}`);
+    console.log(`${PREFIX} 聊天服务已启动: ${LABEL}`);
     console.log(`${PREFIX} 首次使用需手机微信扫码登录，见 src/README.md（日志: ${logDir}/bridge.out.log）`);
+  }
+
+  // 5. 首页微信快捷入口（UI 补丁，HMR 自动热更新）
+  console.log(`${PREFIX} 应用首页微信快捷入口补丁…`);
+  try {
+    execSync(`${process.execPath} "${join(HERE, 'ui', 'reapply.mjs')}"`, { stdio: 'inherit' });
+  } catch (e) {
+    console.error(`${PREFIX} UI 补丁执行失败: ${e.message}`);
   }
 }
 

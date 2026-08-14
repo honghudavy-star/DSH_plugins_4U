@@ -2,8 +2,8 @@
 // reapply.mjs — 把「微信入口」补丁应用到 DSH 客户端 bundle（幂等）。
 //
 // 用法:
-//   npx dsh-plugins-wechat-ui                 # 自动定位 bundle（~/.npm/_npx/*/...）
-//   npx dsh-plugins-wechat-ui <bundle路径>    # 指定路径
+//   npx dsh-plugins-wechat                 # 自动定位 bundle（~/.npm/_npx/*/...）
+//   npx dsh-plugins-wechat <bundle路径>    # 指定路径
 //
 // 组件代码的权威来源是同目录 dsh-client-ui-workspace.client.js.patched，
 // 本脚本从其中提取补丁块再拼接。改动后由 DSH 内置 client-hmr（500ms 轮询）自动热更新。
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATCHED = join(HERE, 'dsh-client-ui-workspace.client.js.patched');
 const MARKER = 'const WECHAT_SESSION_IDS';
-const PREFIX = '[dsh-plugins/wechat-ui]';
+const PREFIX = '[dsh-plugins/wechat]';
 
 function locateBundle() {
   const base = join(homedir(), '.npm', '_npx');
@@ -42,7 +42,7 @@ function countOccurrences(s, sub) {
 function main() {
   const target = process.argv[2] || locateBundle();
   if (!target) {
-    console.error(`${PREFIX} 未找到 DSH workspace bundle。请手动指定: npx dsh-plugins-wechat-ui <client.js 绝对路径>`);
+    console.error(`${PREFIX} 未找到 DSH workspace bundle。请手动指定: npx dsh-plugins-wechat <client.js 绝对路径>`);
     process.exit(0); // 不阻断 npm install，稍后可重跑
   }
   if (!existsSync(target)) {
