@@ -1,0 +1,25 @@
+{
+  "name": "@dsh-plugins/wechat-bridge",
+  "version": "1.0.0",
+  "description": "微信(官方 iLink) ⇄ DSH 桥接器：launchd 服务一键安装（消息互转、图片/文件、断线自动重连与回复补发、主动发送 HTTP 接口）",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "install.mjs",
+    "src",
+    "README.md"
+  ],
+  "bin": {
+    "dsh-plugins-wechat-bridge": "install.mjs"
+  },
+  "scripts": {
+    "install": "node install.mjs",
+    "install:service": "node install.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "wechat",
+    "bridge"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-plugins/wechat-ui",
+  "version": "1.0.0",
+  "description": "DSH Web GUI 首页「微信」入口补丁：一键安装、HMR 热更新（单会话直显「微信对话」/ 多会话折叠 / 无会话隐藏）",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "reapply.mjs",
+    "dsh-client-ui-workspace.client.js.patched",
+    "README.md"
+  ],
+  "bin": {
+    "dsh-plugins-wechat-ui": "reapply.mjs"
+  },
+  "scripts": {
+    "install": "node reapply.mjs",
+    "apply": "node reapply.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "wechat",
+    "plugin",
+    "ui"
+  ]
+}
