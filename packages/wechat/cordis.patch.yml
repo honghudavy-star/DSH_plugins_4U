@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-plugins-wechat
+      name: '@dsh-plugins/wechat'

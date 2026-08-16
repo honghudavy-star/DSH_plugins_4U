@@ -1,7 +1,7 @@
 {
-  "name": "@dsh-plugins/wechat",
-  "version": "2.1.0",
-  "description": "DSH 原生组合插件：微信桥接服务与 sidebar 快捷入口",
+  "name": "@dsh-plugins/4u",
+  "version": "2.1.1",
+  "description": "DSH Plugins 4U 总插件：在设置中展示本仓库的自定义插件目录",
   "license": "MIT",
   "type": "module",
   "main": "./index.mjs",
@@ -15,9 +15,8 @@
     "index.mjs",
     "client.js",
     "cordis.patch.yml",
-    "src/dsh-wechat-bridge.mjs",
-    "src/security.mjs",
-    "README.md"
+    "README.md",
+    "docs/DSH_PLUGIN_SPEC.md"
   ],
   "dsh": {
     "bundle": {
@@ -27,20 +26,21 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ]
     }
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.1",
-    "qrcode-terminal": "0.12.0",
-    "wechat-ilink-client": "0.1.0"
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "pack:all": "npm pack && npm pack --workspaces --if-present"
   },
   "keywords": [
     "dsh",
     "deepseek-harness",
-    "wechat",
-    "chat",
-    "shortcut"
+    "cordis",
+    "plugin-bundle"
   ]
 }

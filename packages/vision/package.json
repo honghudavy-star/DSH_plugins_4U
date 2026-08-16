@@ -1,27 +1,44 @@
 {
   "name": "@dsh-plugins/vision",
-  "version": "1.0.0",
-  "description": "识图：让 DSH 看懂图片（GUI 粘贴/拖拽图片 → agent 自动调 image_understand 识别描述/OCR）",
+  "version": "2.1.0",
+  "description": "DSH 原生组合插件：在 composer 中分析粘贴或拖入的图片后发送给文本模型",
   "license": "MIT",
   "type": "module",
-  "engines": {
-    "node": ">=20.9.0"
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
-    "install.mjs",
-    "apply-patches.mjs",
-    "patch-profile.mjs",
-    "lib",
-    "luma-mcp",
+    "index.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "luma-mcp/LICENSE",
+    "luma-mcp/build/siliconflow-client.js",
+    "luma-mcp/build/openai-compatible-client.js",
+    "luma-mcp/build/vision-client.js",
+    "luma-mcp/build/utils/helpers.js",
+    "luma-mcp/build/utils/logger.js",
+    "!luma-mcp/README.md",
     "README.md"
   ],
-  "bin": {
-    "dsh-plugins-vision": "install.mjs"
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
   },
-  "scripts": {
-    "install": "node install.mjs",
-    "install:reapply": "node install.mjs",
-    "test": "node --test test/*.test.mjs"
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1",
+    "axios": "1.19.0"
   },
   "keywords": [
     "dsh",

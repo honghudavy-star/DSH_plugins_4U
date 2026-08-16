@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-plugins-vision
+      name: '@dsh-plugins/vision'

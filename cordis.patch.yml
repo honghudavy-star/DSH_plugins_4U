@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-plugins-4u
+      name: '@dsh-plugins/4u'

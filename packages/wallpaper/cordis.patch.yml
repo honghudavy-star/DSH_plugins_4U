@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-plugins-wallpaper
+      name: '@dsh-plugins/wallpaper'

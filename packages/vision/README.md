@@ -1,60 +1,29 @@
 # 识图（@dsh-plugins/vision）
 
-> 让 DSH 看懂图片：截图/粘贴图 → 自动识别、描述、OCR 文字。
+DSH 原生组合插件。Host 侧注册 `/plugins/dsh-vision/analyze`，Web 侧在
+`conversation.input.right` 注册“识图发送”按钮。
 
-## 这是什么？
+## 为什么这样实现
 
-DSH 用的文本模型本身看不见图。装了这个功能包后：
+当前 DSH stable 会在 Host 准入层拒绝发往文本模型的 image block。本插件先把草稿图片交给
+SiliconFlow `deepseek-ai/DeepSeek-OCR`，然后移除原始图片，以“用户问题 + 视觉分析结果”的
+纯文本提交。因此无需修改 DSH runtime，也不会绕过模型能力检查。
 
-- 📋 在 DSH 界面**直接粘贴/拖拽一张图片**
-- 👁️ agent 会自动调用 `image_understand` 工具识图，然后基于图片内容回答
-- 🔤 支持 OCR 逐字提取文字、描述图片内容、分析截图
-
-## 怎么安装
-
-```bash
-npm pack ./packages/vision && npm install --global --foreground-scripts dsh-plugins-vision-*.tgz
-```
-
-安装时自动完成：
-
-1. 部署识图服务（luma-mcp，SiliconFlow + DeepSeek-OCR，**免费额度可用**）
-2. 打好全部运行时补丁（图片不再被拒绝、路径白名单、无扩展名附件识别等）
-3. 写入 DSH 配置（`image_understand` 工具 + agent 识图指令）
-
-> 🔑 API Key：首次安装会提示输入 **SiliconFlow API Key**（免费申请：
-> https://platform.siliconflow.cn ）。也可以先设环境变量
-> `SILICONFLOW_API_KEY=sk-xxx` 再安装。**Key 只存在你本机**，不会进仓库。
-
-## 第一次用
-
-装完**需要重启 DSH**（配置和底层补丁要重启才加载）：
+## 安装与密钥
 
 ```bash
-# 停掉当前 dsh web（终端 Ctrl+C），再重新启动：
-npm exec @deepseek-ai/dsh web
+./install.sh vision
+export SILICONFLOW_API_KEY="your-api-key"
+npm exec --yes --package=@deepseek-ai/dsh@0.1.0-rc.6 -- dsh web
 ```
 
-重启后：在 DSH 对话框**粘贴一张图片**（Cmd+V 或拖拽），agent 会自动识图回答。
+也可以用 DSH 的 credential provider 保存名为 `SILICONFLOW_API_KEY` 的凭据。插件只读取
+凭据，不会把密钥写入包、日志或 profile patch。
 
-## 出问题了怎么办
+## 使用
 
-- 重跑一遍安装（幂等）：`npx dsh-plugins-vision`
-- DSH 升级后识图失效（npx 缓存被还原）：重跑安装即可恢复；若存在多个完整缓存，
-  先将 `DSH_NPX_RUNTIME_DIR` 设为实际启动 DSH 的 npm-exec 目录
-- 图片路径读不了：确认环境变量 `LUMA_ALLOW_ANY_PATH=1` 还在配置里（重跑安装会补）
+在 DSH 对话框粘贴或拖入 1–3 张图片，输入问题，点击“识图发送”。请求限制可在 DSH
+插件配置中调整，包括图片数、单图大小、总请求大小、模型和重试次数。
 
-## 技术细节（给维护者）
-
-- `luma-mcp/` — 预编译识图服务（只有可运行的 `build/`，不会在安装时尝试编译缺失源码）；
-  每次安装都按锁文件执行 `npm ci --omit=dev`，不会沿用旧 `node_modules`。部署会先解析
-  现有祖先的真实路径并验证目标身份；根目录、HOME、与源码重叠的路径，以及非空但并非
-  可验证 luma-mcp 运行时的目录都会在任何暂存或写入前被拒绝
-- `apply-patches.mjs` — 运行时补丁重放（luma 白名单/魔数嗅探 + npx 缓存里的
-  dsh-llm-deepseek 图片压平 + dsh-host-apiproxy 受理门放行）。只有一个完整 DSH
-  缓存时可自动选择；多个候选时会列出路径并要求用 `DSH_NPX_RUNTIME_DIR` 显式指定，
-  不会用 mtime 猜测。未知版本同样会在写入前安全停止
-- `patch-profile.mjs` — `~/.dsh/profiles/web/cordis.patch.yml` 幂等写入
-  （自动更新旧 luma 路径；修改前保存 `.bak`，配置/备份为 `0600`、目录为 `0700`；
-  profile 为符号链接时安全更新其真实目标并保留链接，备份也放在真实目标旁；
-  API Key 复用已有配置/环境变量/交互输入，不入库）
+`luma-mcp/build/` 保留图像预处理与 SiliconFlow 客户端实现；原有修改 npm 缓存与 profile
+的安装补丁不再参与发布包。

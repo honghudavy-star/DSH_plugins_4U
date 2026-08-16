@@ -23,39 +23,25 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
-          cache-dependency-path: |
-            packages/wechat/src/package-lock.json
-            packages/vision/luma-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
 
       - name: Syntax checks
         run: |
           bash -n install.sh
           while IFS= read -r -d '' file; do
             node --check "$file"
-          done < <(find packages -type f \( -name '*.js' -o -name '*.mjs' \) -print0)
+          done < <(find . -path './node_modules' -prune -o -type f \( -name '*.js' -o -name '*.mjs' \) -print0)
 
       - name: Focused regression tests
-        run: |
-          npm test --prefix packages/wechat
-          npm test --prefix packages/wallpaper
-          npm test --prefix packages/vision
-
-      - name: Clean runtime dependency installs
-        run: |
-          if grep -n 'registry\.npmmirror\.com' packages/wechat/src/package-lock.json packages/vision/luma-mcp/package-lock.json; then
-            echo 'Runtime lockfiles must resolve from registry.npmjs.org' >&2
-            exit 1
-          fi
-          npm ci --omit=dev --no-audit --no-fund --registry=https://registry.npmjs.org --prefix packages/wechat/src
-          npm ci --omit=dev --no-audit --no-fund --registry=https://registry.npmjs.org --prefix packages/vision/luma-mcp
+        run: npm test
 
       - name: Package contents
         run: |
-          npm pack --dry-run --json ./packages/wechat >/dev/null
-          npm pack --dry-run --json ./packages/wallpaper >/dev/null
-          npm pack --dry-run --json ./packages/vision >/dev/null
+          npm pack --dry-run --json >/dev/null
+          npm pack --workspaces --if-present --dry-run --json >/dev/null
 
       - name: Production dependency audit
-        run: |
-          npm audit --omit=dev --registry=https://registry.npmjs.org --prefix packages/wechat/src
-          npm audit --omit=dev --registry=https://registry.npmjs.org --prefix packages/vision/luma-mcp
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org

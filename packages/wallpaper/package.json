@@ -1,10 +1,18 @@
 {
   "name": "@dsh-plugins/wallpaper",
-  "version": "1.0.0",
-  "description": "更换背景壁纸：一条命令给 DSH 换壁纸（内置预设/自选图片，可调透明度、一键关闭，HMR 即时生效）",
+  "version": "2.1.1",
+  "description": "DSH 原生组合插件：使用内置预设或本地图片更换 Web 背景壁纸",
   "license": "MIT",
   "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
   "files": [
+    "index.mjs",
+    "cordis.patch.yml",
     "wallpaper.mjs",
     "presets",
     "README.md"
@@ -12,9 +20,13 @@
   "bin": {
     "dsh-plugins-wallpaper": "wallpaper.mjs"
   },
-  "scripts": {
-    "install": "node wallpaper.mjs apply",
-    "test": "node --test test/*.test.mjs"
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1"
   },
   "keywords": [
     "dsh",
