@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
+import { removeLegacyWallpaperPatch } from './legacy-cleanup.mjs'
 
 export const name = 'dsh-plugins-wallpaper'
 export const inject = ['webServer']
@@ -201,12 +202,21 @@ function validatePatch(body) {
   return patch
 }
 
-export function createWallpaperConfigController(ctx, entry) {
+export function createWallpaperConfigController(ctx, entry, onChange = () => {}, cleanup = removeLegacyWallpaperPatch) {
   let source = () => entry
   let scope
+  const cleanLegacyPatch = () => {
+    try {
+      if (cleanup()) onChange('legacy wallpaper patch removed')
+    } catch (error) {
+      ctx.logger?.warn?.(`[${name}] legacy wallpaper cleanup skipped: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   ctx.inject(['settings'], settingsCtx => {
     scope = settingsCtx.settings.register('dsh-plugins-wallpaper', Config, { base: entry, applies: 'live' })
     source = () => scope.get()
+    cleanLegacyPatch()
+    scope.watch(() => cleanLegacyPatch())
   })
   return {
     current: () => source(),

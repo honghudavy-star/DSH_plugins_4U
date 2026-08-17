@@ -4,6 +4,7 @@ import { homedir, platform } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { removeLegacyWallpaperPatch, stripLegacyWallpaperPatch } from './legacy-cleanup.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PRESETS_DIR = join(HERE, 'presets')
@@ -20,6 +21,7 @@ function saveState(value) {
   mkdirSync(STATE_DIR, { recursive: true })
   writeFileSync(STATE_FILE, `${JSON.stringify(value, null, 2)}\n`)
 }
+
 
 function numberOption(args, name, fallback) {
   const at = args.indexOf(name)
@@ -55,7 +57,8 @@ function main() {
   }
   if (command === 'off') {
     saveState({ source: null, opacity: 0.3 })
-    console.log(`${PREFIX} 已关闭；刷新 DSH 页面后生效`)
+    const cleaned = removeLegacyWallpaperPatch()
+    console.log(`${PREFIX} 已关闭${cleaned ? '，并清理旧版运行时壁纸补丁' : ''}；刷新 DSH 页面后生效`)
     return
   }
   if (command === 'apply') {

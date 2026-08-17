@@ -162,6 +162,22 @@ test('wallpaper upload accepts real supported image bytes and rejects disguised 
   assert.throws(() => validateUploadedImage(png, 'image/svg+xml'), /does not match/)
 })
 
+test('wallpaper off can remove only the complete legacy runtime patch', async () => {
+  const { stripLegacyWallpaperPatch } = await import('../packages/wallpaper/legacy-cleanup.mjs')
+  const marker = '/* DSH_WALLPAPER_MARKER_START */'
+  const end = '/* DSH_WALLPAPER_MARKER_END */'
+  const source = `before\n${marker}\nlegacy wallpaper\n${end}\nafter`
+  assert.deepEqual(stripLegacyWallpaperPatch(source), {
+    source: 'before\n\nafter',
+    changed: true,
+  })
+  assert.deepEqual(stripLegacyWallpaperPatch('clean bundle'), {
+    source: 'clean bundle',
+    changed: false,
+  })
+  assert.throws(() => stripLegacyWallpaperPatch(`${marker}\nincomplete`), /不完整/)
+})
+
 test('Host plugin modules expose Cordis apply functions', async () => {
   for (const id of PACKAGES) {
     const plugin = await import(`../packages/${id}/index.mjs`)
@@ -219,6 +235,47 @@ test('all three Host configuration controllers persist live, namespaced settings
     ['dsh-plugins-wallpaper', 'live'],
     ['dsh-plugins-vision', 'live'],
   ])
+})
+
+test('wallpaper Host controller cleans legacy patches on startup and live changes', async () => {
+  let current = { enabled: false, source: 'preset:midnight', opacity: 0.3 }
+  const watchers = new Set()
+  let cleanupCalls = 0
+  const reasons = []
+  const ctx = {
+    inject: (_dependencies, setup) => setup({
+      settings: {
+        register: () => ({
+          get: () => current,
+          update: async patch => {
+            const previous = current
+            current = { ...current, ...patch }
+            for (const watcher of watchers) await watcher(current, previous)
+          },
+          watch: watcher => {
+            watchers.add(watcher)
+            return () => watchers.delete(watcher)
+          },
+        }),
+      },
+    }),
+    logger: { warn: () => {} },
+  }
+  const { createWallpaperConfigController } = await import('../packages/wallpaper/index.mjs')
+  const controller = createWallpaperConfigController(
+    ctx,
+    current,
+    reason => reasons.push(reason),
+    () => {
+      cleanupCalls += 1
+      return cleanupCalls === 1
+    },
+  )
+
+  assert.equal(cleanupCalls, 1)
+  await controller.update({ enabled: true })
+  assert.equal(cleanupCalls, 2)
+  assert.deepEqual(reasons, ['legacy wallpaper patch removed'])
 })
 
 test('WeChat supervisor detects an occupied bridge port before spawning', async t => {
